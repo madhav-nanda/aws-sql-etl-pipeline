@@ -23,8 +23,8 @@ def lambda_handler(event, context):
     # --- 🔐 AWS RDS (MySQL) Connection Details ---
     host = "database2025.cpe0uka0cn1s.us-east-2.rds.amazonaws.com"
     dbname = "weather_db"
-    user = "admin"
-    password = "Madhava1435"  # ⚠️ Replace with environment variable in production
+    user = ""
+    password = ""  # ⚠️ Replace with environment variable in production
     port = 3306
 
     # --- 🌦 Cities to Collect Weather Data For ---
