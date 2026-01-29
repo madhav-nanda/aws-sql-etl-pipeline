@@ -1,0 +1,94 @@
+# Imports
+# =====================
+import sys   # To access command-line arguments
+from awsglue.transforms import *   # AWS Glue Transform functions
+from awsglue.utils import getResolvedOptions   # Fetch job parameters
+from pyspark.context import SparkContext   # Spark context for distributed computing
+from awsglue.context import GlueContext   # Glue Context for Spark
+from awsglue.job import Job   # Glue Job class
+from awsglue.dynamicframe import DynamicFrameCollection, DynamicFrame   # Handling nested data
+
+# =============================
+# Custom Transformation Function
+# =============================
+def MyTransform(glueContext, dfc) -> DynamicFrameCollection:
+    from pyspark.sql.functions import when, col   # Conditional functions
+    from awsglue.dynamicframe import DynamicFrame, DynamicFrameCollection   # Re-import for scope
+
+    # Step 1: Convert incoming DynamicFrameCollection to Spark DataFrame
+    df = dfc.select(list(dfc.keys())[0]).toDF()
+
+    # Step 2: Add "temperature_category" column based on temperature
+    df = df.withColumn(
+        "temperature_category",
+        when(col("temperature") >= 35, "Hot")
+        .when((col("temperature") >= 25) & (col("temperature") < 35), "Warm")
+        .when((col("temperature") >= 15) & (col("temperature") < 25), "Cool")
+        .otherwise("Cold")
+    )
+    # Step 2 (continued): Add "humidity_category" column based on humidity
+    df = df.withColumn(
+        "humidity_category",
+        when(col("humidity") >= 70, "Humid")
+        .when((col("humidity") >= 30) & (col("humidity") < 70), "Normal")
+        .otherwise("Dry")
+    )
+    # Step 3: Convert Spark DataFrame back to DynamicFrame
+    output_dyf = DynamicFrame.fromDF(df, glueContext, "output_dyf")
+    
+    # Step 4: Return as a DynamicFrameCollection
+    return DynamicFrameCollection({"CustomTransform0": output_dyf}, glueContext)
+
+# ==========================
+# Glue Job Initialization
+# ==========================
+args = getResolvedOptions(sys.argv, ['JOB_NAME'])  # Get the Glue job name
+sc = SparkContext()  # Initialize SparkContext
+glueContext = GlueContext(sc)  # Initialize GlueContext
+spark = glueContext.spark_session  # SparkSession (needed for advanced Spark features)
+job = Job(glueContext)  # Create a Glue Job object
+job.init(args['JOB_NAME'], args)
+# ==========================
+# Extract Data: Read from MySQL Table
+# ==========================
+MySQL_node1744146560244 = glueContext.create_dynamic_frame.from_options(
+    connection_type="mysql",  # MySQL Connection
+    connection_options={
+        "useConnectionProperties": "true",
+        "dbtable": "us_weather",  # Source table name
+        "connectionName": "Mysqlweather_db"  # Saved connection name
+    },
+    transformation_ctx="MySQL_node1744146560244"
+)
+# ==========================
+# Transform Data: Apply Custom Logic
+# ==========================
+CustomTransform_node1744146668849 = MyTransform(
+    glueContext,
+    DynamicFrameCollection({"MySQL_node1744146560244": MySQL_node1744146560244}, glueContext)
+)
+
+# ==========================
+# Select Transformed Frame from Collection
+# ==========================
+SelectFromCollection_node1744147271817 = SelectFromCollection.apply(
+    dfc=CustomTransform_node1744146668849,
+    key=list(CustomTransform_node1744146668849.keys())[0],
+    transformation_ctx="SelectFromCollection_node1744147271817"
+)
+
+# ==========================
+# Load Data: Write Back to MySQL
+# ==========================
+glueContext.write_dynamic_frame.from_options(
+    frame=SelectFromCollection_node1744147271817,
+    connection_type="mysql",
+    connection_options={
+        "useConnectionProperties": "true",
+        "dbtable": "us_weather_transformed",  # Target table
+        "connectionName": "Mysqlweather_db"
+    },
+    transformation_ctx="MySQL_target_node"
+)
+# commit the glue job 
+job.commit()
